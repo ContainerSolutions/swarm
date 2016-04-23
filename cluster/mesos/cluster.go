@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+  "net"
 	"os"
 	"sort"
 	"strings"
@@ -24,7 +25,11 @@ import (
 	"github.com/gogo/protobuf/proto"
 	"github.com/mesos/mesos-go/mesosproto"
 	mesosscheduler "github.com/mesos/mesos-go/scheduler"
+  "github.com/mesos/mesos-go/auth"
+  "github.com/mesos/mesos-go/auth/sasl"
+//  "github.com/mesos/mesos-go/auth/sasl/mech"
 	"github.com/samalba/dockerclient"
+  "golang.org/x/net/context"
 )
 
 // Cluster struct for mesos
@@ -91,11 +96,29 @@ func NewCluster(scheduler *scheduler.Scheduler, TLSConfig *tls.Config, master st
 	// Do not check error here, so mesos-go can still try.
 	hostname, _ := os.Hostname()
 
-	driverConfig := mesosscheduler.DriverConfig{
-		Framework:        &mesosproto.FrameworkInfo{Name: proto.String(frameworkName), User: &user},
-		Master:           cluster.master,
-		HostnameOverride: hostname,
-	}
+  cred := &mesosproto.Credential {
+    Principal: proto.String("marathon"),
+    Secret: []byte("VuofjBAMGUamy1SMzHjiOJ0CnZEylgyedm4q3bhjZSKz"),
+  };
+
+  binding_ip_addr, err := net.LookupIP("0.0.0.0");
+
+  if err != nil {
+    log.Fatal(err);
+    //TODO: panic?
+  }
+
+  driverConfig := mesosscheduler.DriverConfig{
+    Framework:        &mesosproto.FrameworkInfo{Name: proto.String(frameworkName), User: &user},
+    Master:           cluster.master,
+    HostnameOverride: hostname,
+    Credential: cred,
+    WithAuthContext: func(ctx context.Context) context.Context {
+      ctx = auth.WithLoginProvider(ctx, sasl.ProviderName) // TODO: Provide multiple auth backends.
+      ctx = sasl.WithBindingAddress(ctx, binding_ip_addr[0]) // TODO: make binding address configurable
+      return ctx
+    },
+  }
 
 	if taskCreationTimeout, ok := options.String("mesos.tasktimeout", "SWARM_MESOS_TASK_TIMEOUT"); ok {
 		d, err := time.ParseDuration(taskCreationTimeout)
